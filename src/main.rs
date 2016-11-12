@@ -1,15 +1,18 @@
-#[macro_use]
-extern crate version;
-#[macro_use]
-extern crate log;
+#[macro_use] extern crate version;
+#[macro_use] extern crate log;
 extern crate log4rs;
 extern crate clap;
+#[macro_use] extern crate error_type;
+extern crate lzf;
+extern crate data_encoding;
+extern crate rand;
+
+mod error;
+mod generate;
 
 use clap::{Arg, App, AppSettings, SubCommand};
 
 fn main() {
-    log4rs::init_file("log4rs.toml", Default::default()).unwrap();
-
     let matches = App::new("Babylon")
         .global_settings(&[ AppSettings::ColoredHelp,
                             AppSettings::UnifiedHelpMessage,
@@ -39,15 +42,21 @@ fn main() {
                 .help("Babylon index string to look up")
                 .required(true)
                 .index(1)))
+        .subcommand(SubCommand::with_name("test")
+            .about("Generate an index and then look it up again")
+            .arg(Arg::with_name("TEXT")
+                .help("The base text to build from")
+                .required(true)
+                .index(1))
+            .arg(Arg::with_name("seed")
+                .short("s")
+                .long("seed")
+                .value_name("SEED")
+                .help("Sets a seed value for the RNG")
+                .takes_value(true)))
         .get_matches();
 
-    match matches.occurrences_of("v") {
-        0 => error!("Error level enabled"),
-        1 => warn!("Warn level enabled"),
-        2 => info!("Info level enabled"),
-        3 => debug!("Debug level enabled"),
-        4 | _ => trace!("Trace level enabled"),
-    }
+    setup_logging(matches.occurrences_of("v"));
 
     match matches.subcommand() {
         ("write", Some(matches)) => {
@@ -55,14 +64,53 @@ fn main() {
             let seed: u64 = matches.value_of("VALUE")
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(42);
-           info!("Generating from '{:?}' with seed={:?}", text, seed);
-           // TODO generate some text
-        }
+           let result = generate::write(text).unwrap();
+           println!("{}", result);
+        },
         ("lookup", Some(matches)) => {
             let index = matches.value_of("INDEX").unwrap();
-            info!("Looking up {:?}", index);
-            // TODO lookup some text
-        }
+            let result = generate::lookup(index).unwrap();
+            println!("{}", result);
+        },
+        ("test", Some(matches)) => {
+            let text = matches.value_of("TEXT").unwrap();
+            let seed: u64 = matches.value_of("VALUE")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(42);
+           let index = generate::write(text).unwrap();
+           let result = generate::lookup(&index).unwrap();
+           println!("{}", result);
+        },
         _ => unimplemented!()
     }
+}
+
+fn setup_logging(verbosity:u64) {
+    use log::LogLevelFilter;
+    use log4rs::append::console::ConsoleAppender;
+    use log4rs::encode::pattern::PatternEncoder;
+    use log4rs::config::{Appender, Config, Root};
+
+    let level = match verbosity {
+        0 => LogLevelFilter::Off,
+        1 => LogLevelFilter::Error,
+        2 => LogLevelFilter::Warn,
+        3 => LogLevelFilter::Info,
+        4 => LogLevelFilter::Debug,
+        5 | _ => LogLevelFilter::Trace,
+    };
+
+    let stdout = ConsoleAppender::builder()
+        .encoder(Box::new(PatternEncoder::new(
+            "{d(%Y-%m-%d %H:%M:%S%.6f)(local)} {h({l:<5})} {t} - {m}{n}")))
+        .build();
+
+    let root = Root::builder().appender("stdout".to_owned()).build(level);
+
+    let config = Config::builder()
+        .appender(Appender::builder().build("stdout".to_owned(), Box::new(stdout)))
+        .build(root)
+        .unwrap();
+
+    log4rs::init_config(config).unwrap();
 }
