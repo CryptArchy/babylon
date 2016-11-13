@@ -3,7 +3,6 @@ use std::result;
 use std::error::Error as stdError;
 use std::str::Utf8Error;
 use std::string::FromUtf8Error;
-use lzf::LzfError;
 use data_encoding::decode::Error as DecodeError;
 
 error_type! {
@@ -11,9 +10,6 @@ error_type! {
   pub enum Error {
     Decode(DecodeError) {
       cause;
-    },
-    Compress(LzfError) {
-      desc (_e) "Error with Lzf compression";
     },
     ConvertStr(Utf8Error) {
       cause;
